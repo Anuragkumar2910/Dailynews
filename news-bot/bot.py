@@ -1,16 +1,26 @@
 import requests
 import os
 
-# 🔐 Environment variables
 TOKEN = os.getenv("TOKEN")
 CHAT_ID = os.getenv("CHAT_ID")
 API_KEY = os.getenv("API_KEY")
 
-# 🧠 Store used titles to avoid duplicates
 used_titles = set()
 
-# 📰 Function to fetch news (no duplicates)
-def get_news(query):
+# 🧠 Category-specific keyword filters
+CATEGORY_KEYWORDS = {
+    "national": ["india", "government", "policy", "election"],
+    "international": ["world", "war", "country", "global", "russia", "china"],
+    "government": ["budget", "economy", "rbi", "scheme", "policy"],
+    "tech": ["ai", "technology", "robot", "semiconductor", "startup"],
+    "sports": ["cricket", "match", "ipl", "football", "tournament"],
+    "trending": ["breaking", "update", "big", "latest"]
+}
+
+# 🚫 Words to ignore (junk filter)
+IGNORE_WORDS = ["version", "release", "pypi", "library", "package"]
+
+def get_news(query, category):
     url = f"https://newsapi.org/v2/everything?q={query}&sortBy=publishedAt&language=en&apiKey={API_KEY}"
     
     response = requests.get(url).json()
@@ -19,33 +29,42 @@ def get_news(query):
     news_list = []
 
     for article in articles:
-        title = article.get("title", "")
+        title = article.get("title", "").lower()
 
-        # Skip empty or duplicate titles
-        if not title or title in used_titles:
+        if not title:
             continue
 
-        # Add to used set
+        # ❌ Skip duplicates
+        if title in used_titles:
+            continue
+
+        # ❌ Skip junk
+        if any(word in title for word in IGNORE_WORDS):
+            continue
+
+        # ✅ Keep only category-relevant news
+        if not any(word in title for word in CATEGORY_KEYWORDS[category]):
+            continue
+
         used_titles.add(title)
-        news_list.append(title)
+        news_list.append(title.title())
 
         if len(news_list) == 3:
             break
 
-    return "\n".join([f"{i+1}. {t}" for i, t in enumerate(news_list)]) or "No updates available\n"
+    return "\n".join([f"{i+1}. {t}" for i, t in enumerate(news_list)]) or "No relevant updates\n"
 
 
-# 📩 Send message
 def send_message():
     global used_titles
-    used_titles.clear()  # Reset daily
+    used_titles.clear()
 
-    national = get_news("India politics OR government OR election")
-    international = get_news("world geopolitics OR war OR global news")
-    government = get_news("India economy OR budget OR RBI OR scheme")
-    tech = get_news("AI technology OR semiconductor OR robotics OR startup")
-    sports = get_news("cricket OR IPL OR sports India")
-    trending = get_news("breaking news India OR trending India")
+    national = get_news("India politics", "national")
+    international = get_news("global news war geopolitics", "international")
+    government = get_news("India economy budget RBI", "government")
+    tech = get_news("AI technology semiconductor", "tech")
+    sports = get_news("cricket IPL sports India", "sports")
+    trending = get_news("breaking news India", "trending")
 
     message = f"""
 📰 Daily Brief
@@ -70,14 +89,9 @@ def send_message():
 """
 
     url = f"https://api.telegram.org/bot{TOKEN}/sendMessage"
-
-    data = {
-        "chat_id": CHAT_ID,
-        "text": message
-    }
+    data = {"chat_id": CHAT_ID, "text": message}
 
     requests.post(url, data=data)
 
 
-# ▶️ Run once (for GitHub Actions)
 send_message()
